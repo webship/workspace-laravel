@@ -1,0 +1,97 @@
+{
+  "name": "@webship.co/workspace-laravel",
+  "version": "1.0.0",
+  "description": "Laravel for Webship Workspace: the builder (`cmd-laravel-project.sh`, the official installer and an official starter kit) and the Artisan tool in every sites folder, the default accounts, the Laravel step pack wired into the testing setup, and its AI items in their folders: two agents, a skill, a command and two prompts.",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/webship/workspace-laravel.git"
+  },
+  "files": [
+    "dist/src",
+    "ai",
+    "commands",
+    "features",
+    "scripts",
+    "testing",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepare": "npm run build",
+    "test": "npm run build && node --test dist/tests/*.test.js",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "workspacePlugin": {
+    "name": "laravel",
+    "label": "Laravel",
+    "needs": [
+      [
+        "dev",
+        "test",
+        "sandboxes",
+        "demos"
+      ],
+      "ai-agents",
+      "ai-skills",
+      "ai-commands",
+      "ai-prompts"
+    ],
+    "commands": {
+      "types": [
+        "sites"
+      ],
+      "workspaces": [
+        "dev",
+        "test",
+        "sandboxes",
+        "demos"
+      ],
+      "files": [
+        "commands/cmd-laravel-project.sh",
+        "commands/cmd-tools-laravel-artisan.sh"
+      ]
+    },
+    "scripts": {
+      "functions": [
+        "scripts/functions/fun-laravel.sh"
+      ],
+      "args": [
+        "scripts/args/arg-laravel.sh",
+        "scripts/args/arg-laravel-artisan.sh"
+      ],
+      "machine": [
+        "testing/site.feature"
+      ]
+    },
+    "ai": {
+      "agents": [
+        "ai/agents/laravel-site-builder.md",
+        "ai/agents/laravel-tester.md"
+      ],
+      "skills": [
+        "ai/skills/laravel-scenarios"
+      ],
+      "commands": [
+        "ai/commands/laravel-test.md"
+      ],
+      "prompts": [
+        "ai/prompts/laravel-build-and-test.md",
+        "ai/prompts/laravel-scenarios-for-an-account.md"
+      ]
+    },
+    "features": [
+      "features/laravel.feature"
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@webship.co/workspace-plugin-api": "^1.0.11",
+    "typescript": "^5.9.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

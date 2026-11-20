@@ -55,8 +55,8 @@ function laravel_enter_project() {
   cd "${project_path}" || return 1 ;
 }
 
-# Write accounts through the app itself, so a password is hashed the way the app hashes it and the
-# model is the app's own (config auth.providers.users.model). Reads lines of
+# Write accounts through the app itself, so a password is hashed with the app's own hasher (whether
+# or not its User model casts it) and the model is the app's own (config auth.providers.users.model). Reads lines of
 # "name|email|password|verified" on standard input; "delete" as the first argument removes the
 # accounts of those addresses instead, and "list" lists every account of the app. Runs in the
 # project folder, in the container.
@@ -85,7 +85,12 @@ foreach (file($file, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
     }
     $user = $model::query()->firstOrNew(['email' => $email]);
     $user->name = $name;
-    $user->password = $password;
+    // Hashed here: not every app's User model casts the password as hashed, and one that does never
+    // hashes a hash twice. A password the account already has keeps its hash, so writing the accounts
+    // again does not end their sessions.
+    if (! $user->password || ! Illuminate\Support\Facades\Hash::check($password, $user->password)) {
+        $user->password = Illuminate\Support\Facades\Hash::make($password);
+    }
     $user->email_verified_at = $verified === 'verified' ? now() : null;
     $user->save();
     printf("  %s <%s>%s\n", $user->name, $user->email, $user->email_verified_at ? '' : ' (address not verified)');

@@ -77,6 +77,14 @@ test('the accounts are written through the app, with their state, and removed th
   assert.match(written, /^member\|member@example\.com\|\|$/m);
 });
 
+test('the accounts get a hashed password even where the User model does not hash it, and keep a hash that matches', () => {
+  const src = fs.readFileSync(FUNCTIONS, 'utf8');
+  const php = src.slice(src.indexOf("cat > \"${script}\" <<'PHPEOF'"), src.indexOf('PHPEOF\n', src.indexOf("<<'PHPEOF'") + 10));
+  assert.match(php, /Hash::make\(\$password\)/, 'the password is hashed with the app\'s hasher');
+  assert.match(php, /Hash::check\(\$password, \$user->password\)/, 'a password the account already has keeps its hash');
+  assert.doesNotMatch(php, /\$user->password = \$password;/, 'never the password as it is written');
+});
+
 test('the testing hook adds the step pack, the users registry, the mailbox, the tags and a first feature to a Laravel project, once', () => {
   const p = project('laravel');
   const log = path.join(p.root, 'ddev.log');

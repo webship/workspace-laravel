@@ -5,7 +5,9 @@
 # Installed by the Laravel plugin (plugins.sh --install laravel); __WORKSPACE__ is the workspace it was installed into.
 #
 # Build a Laravel app in a container with the official installer and an official starter kit
-# (Livewire by default, React or Vue with --starter-kit), at https://<name>.ddev.site. With --install
+# (Livewire by default, React or Vue with --starter-kit): on DDEV (the default) at
+# https://<name>.ddev.site, and with --runtime docker, podman, kubernetes, lando or docksal on that
+# runtime, at the address the build prints. With --install
 # its database is migrated and the workspace account is its first account; with --add-users it also
 # gets the default accounts.
 

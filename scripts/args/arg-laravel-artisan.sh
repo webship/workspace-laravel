@@ -16,7 +16,7 @@ parser.add_argument('-d', '--down',
                     help='Put the app into maintenance mode. With --secret, that address lets a browser past the maintenance page.')
 parser.add_argument('-s', '--secret',
                     default="",
-                    help='With --down: the secret that lets a browser past the maintenance page (https://<name>.ddev.site/<secret>). Example: --secret preview-2026')
+                    help='With --down: the secret that lets a browser past the maintenance page (the address of the app, then /<secret>). Example: --secret preview-2026')
 parser.add_argument('-U', '--up',
                     action='store_true',
                     default=False,

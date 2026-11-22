@@ -50,7 +50,14 @@ test('the functions carry the names the core\'s tools look for, and never write 
     assert.match(src, new RegExp(`^function ${fn}\\(\\) \\{`, 'm'), `${fn} is defined`);
   }
   assert.doesNotMatch(src, /^function build_laravel\(\)/m, 'the core\'s own example function is not redefined');
-  assert.doesNotMatch(src, /--db-(host|database|username|password)|DB_(HOST|DATABASE|USERNAME|PASSWORD)=/, 'the container tool owns the database settings');
+  // The database settings only where DDEV writes them and another runtime does not: laravel_runtime_config.
+  const own = src.slice(src.indexOf('function laravel_runtime_config() {'), src.indexOf('\n}\n', src.indexOf('function laravel_runtime_config() {')));
+  assert.match(own, /--db-host=db --db-port=3306 --db-database=db --db-username=db --db-password=db/, 'the stack\'s own values, nothing personal');
+  assert.doesNotMatch(src.replace(own, ''), /--db-(host|database|username|password)|DB_(HOST|DATABASE|USERNAME|PASSWORD)=/, 'the container tool owns the database settings');
+  assert.match(src, /laravel_runtime_config "\$\{base_url\}"/);
+  assert.match(src.slice(src.indexOf('function laravel_build() {')), /if \[ "\$\{runtime\}" == 'ddev' \] ; then[\s\S]*ddev_up restart[\s\S]*else[\s\S]*laravel_runtime_config/, 'only on a runtime that is not DDEV');
+  assert.doesNotMatch(src.replace(/^\s*#.*$/gm, '').replace(/echo "https:\/\/\$\{PROJECT_NAME\}\.ddev\.site"/, ''), /ddev\.site/, 'ddev.site only as the answer of a core with no layer');
+  assert.doesNotMatch(src.replace(/^\s*#.*$/gm, ''), /\b(docker|podman|kubectl) |command ddev/, 'only `ddev <verb>`: the layer chooses');
   assert.match(src, /--project-type=laravel/);
   assert.match(src, /laravel new temp --\$\{kit\}/, 'the app is made by the official installer, with the starter kit asked for');
   assert.doesNotMatch(src, /--workos|--teams/, 'no variant that signs in through a hosted service');

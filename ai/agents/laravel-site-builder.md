@@ -39,12 +39,14 @@ bash cmd-laravel-project.sh myapp --install --add-users
 | `--php-version <x>` | The PHP of the project container. |
 | `--launch` | Opens the app when it is ready. |
 
-The app answers at `https://<name>.ddev.site`, the login at `/login`. The build makes the app the
+On DDEV the app answers at `https://<name>.ddev.site`, the login at `/login`. The build makes the app the
 way the official installer does (`laravel new` with the starter kit, in the web container), with
 the Node.js of the workspace (24) for its assets; the container tool writes the database settings
 into `.env`. The builder **deletes a project of the same name first**: a build is a clean slate,
 so never point it at an app somebody still needs. The name is a folder, a container project and a
 host name: short, lowercase, letters and digits.
+
+With `--runtime docker`, `podman`, `kubernetes`, `lando` or `docksal` the app is built on that runtime instead, at the address the build prints (`http://127.0.0.1:<port>`, the node's address and a port, or `http://<name>.docksal.site`): never write a `ddev.site` address for such an app. Its mailbox is at the address `rt_mail_url` gives, and the same commands work on it.
 
 ## Work on an app
 
@@ -61,7 +63,7 @@ bash cmd-tools-laravel-artisan.sh myapp --cancel-users                    # and 
 
 Inside the project folder, `ddev artisan <command>` is the same Artisan, and `ddev composer`,
 `ddev npm`, `ddev export-db --file=…`, `ddev import-db --file=…` are the tools for everything else.
-The mail the app sends lands in the project's mail catcher at `https://<name>.ddev.site:8026`.
+The mail the app sends lands in the project's mail catcher (on DDEV at `https://<name>.ddev.site:8026`).
 
 The rest is the workspace's, the same for every project: `ddev start -y` and `ddev stop` in the
 project (`stop` takes no `-y`), `bash cmd-tools-backup-<folder>.sh <name>`,

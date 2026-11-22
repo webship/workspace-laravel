@@ -71,6 +71,7 @@ Everything the builder runs for an app runs in the app's own container, through 
 | `ai/prompts/laravel-build-and-test.md`, `laravel-scenarios-for-an-account.md` | Two prompts: whole launch commands for a new session |
 | `src/index.ts` | `register(api)`: what the assistant is told about Laravel here |
 | `features/laravel.feature` | Scenarios for the dashboard's own browser suite |
+| `features/laravel-runtimes.feature` | The row, the test users and the pages of an app built on Docker Compose and on Kubernetes |
 
 The `workspacePlugin` block in `package.json` is the manifest the installer reads.
 
@@ -92,14 +93,68 @@ bash cmd-laravel-project.sh myapp --install --add-users
 | `--add-users` | With `--install`: add the default accounts |
 | `--production` | Run the app as a live app runs: `APP_ENV=production`, `APP_DEBUG=false` (error pages instead of the debug page, the stricter password rules) |
 | `--php-version <x>` | The PHP of the project container |
+| `--runtime <name>` | The container runtime to build on: `ddev` (the default), `docker`, `kubernetes`, `podman`, `lando` or `docksal`. See [Runtimes](#runtimes) |
 | `--launch` | Open the app when it is ready |
 
-The app answers at `https://myapp.ddev.site`, the login at `/login`, its mail catcher at
+On DDEV the app answers at `https://myapp.ddev.site`, the login at `/login`, its mail catcher at
 `https://myapp.ddev.site:8026`. The build runs `ddev config --project-type=laravel` with the
 Node.js of the workspace (24), makes the app with the official installer in the web container
 (`laravel new --livewire`, `--react` or `--vue`), the way the DDEV quickstart for Laravel does, and
 leaves the database settings to the container tool (it writes them into `.env`): it writes none.
 A project of the same name is deleted first.
+
+
+### Runtimes
+
+```bash
+bash cmd-laravel-project.sh myapp --install --add-users                        # DDEV, the default
+bash cmd-laravel-project.sh myapp --install --add-users --runtime docker       # Docker Compose
+bash cmd-laravel-project.sh myapp --install --add-users --runtime kubernetes   # a Kubernetes cluster
+bash cmd-laravel-project.sh myapp --install --add-users --runtime lando        # Lando
+bash cmd-laravel-project.sh myapp --install --add-users --runtime docksal      # Docksal
+```
+
+Without `--runtime` a build takes `container.runtime` of the workspace's `settings.yml`, then DDEV.
+It needs a Webship Workspace with the container runtimes
+([webship/workspace#694](https://github.com/webship/workspace/issues/694)); on an older one the
+builder refuses `--runtime` and builds on DDEV only. Lando and Docksal need a Workspace whose runtime
+layer has them ([webship/workspace#729](https://github.com/webship/workspace/issues/729),
+[#730](https://github.com/webship/workspace/issues/730)).
+
+| | DDEV | Docker Compose | Kubernetes | Podman | Lando | Docksal |
+| --- | --- | --- | --- | --- | --- | --- |
+| Build with `--install --add-users --production` | Yes | Yes | Yes | Not yet run | Yes | Yes |
+| The pages, and a login as the workspace account and the default accounts | Yes | Yes | Yes | Not yet run | Yes | Yes |
+| `cmd-tools-laravel-artisan.sh`: status, `--run`, the accounts | Yes | Yes | Yes | Not yet run | Yes | Yes |
+| Test users, added and cancelled | Yes | Yes | Yes | Not yet run | Yes | Yes |
+| Mail caught by Mailpit (a password reset) | Yes | Yes | Yes | Not yet run | Yes | Yes |
+| The testing setup and the first feature | Yes | Yes | Yes | Not yet run | Yes | Yes |
+| The step pack's examples (48 scenarios) | Yes | Yes | Yes | Not yet run | Yes | Yes |
+| Export and import the database | Yes | Yes | Yes | Not yet run | Yes | Yes |
+| The row in the dashboard, and remove | Yes | Yes | Yes | Not yet run | Yes | Yes |
+
+"Yes" means it was run on a real app of that runtime. Podman runs the same code as Docker Compose
+and was not run yet.
+
+| Runtime | The app's address | What the project carries |
+| --- | --- | --- |
+| DDEV | `https://myapp.ddev.site` | `.ddev/config.yaml` |
+| Docker Compose | `http://127.0.0.1:<port>`, printed by the build | `compose.yaml`, `.webship/runtime/Dockerfile` |
+| Kubernetes | `http://<node address>:<port>`, printed by the build | The same, and `k8s/` (the namespace `ws-myapp`) |
+| Lando | `http://127.0.0.1:<port>`, printed by the build | `.lando.yml` (Lando's proxy stays off) |
+| Docksal | `http://myapp.docksal.site`, on Docksal's own proxy | `.docksal/docksal.env`, `.docksal/docksal.yml` |
+
+What differs on Docker Compose, Kubernetes, Lando and Docksal:
+
+- **`.env`** is written by the builder, as DDEV writes it on start: the address (`APP_URL`), the database of the project's own stack (`DB_CONNECTION=mariadb`, `db`/`db`/`db` on the host `db`) and its mail catcher (`MAIL_HOST=mail`, `mailpit` on Lando, port 1025). Nothing personal. On DDEV the builder still writes none.
+- **The official installer** runs from Composer's own folder of the web container, without the front end (`LARAVEL_INSTALLER_NO_NODE`): the web container there has no Node.js. `npm install` and `npm run build` run in the Workspace's tests container, as `laravel new --npm` runs them on DDEV.
+- **Artisan** runs as `php artisan` in the web container (`ddev exec`), and `.env` keys are set by the plugin (`laravel_dotenv_set`): DDEV's `ddev artisan` and `ddev dotenv` are DDEV's own. The tool, the test users and the testing hook use them on every runtime.
+- **On Kubernetes** a site's mail needs the Workspace's webship/workspace#748 (the cluster's service links set `MAIL_PORT` in the pod, which Laravel reads before `.env`).
+- **HTTPS and a host name** are DDEV's: a runtime's address is plain HTTP.
+
+The same commands work on every runtime: `cmd-tools-laravel-artisan.sh`, `cmd-tools-add-users.sh`,
+`cmd-tools-testing.sh`. The pattern is the Workspace's
+[`core/docs/plugins-on-runtimes.md`](https://github.com/webship/workspace/blob/1.0.x/core/docs/plugins-on-runtimes.md).
 
 ### Work on an app
 

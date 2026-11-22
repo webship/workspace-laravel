@@ -5,8 +5,17 @@
 #
 # Placed by `plugins.sh --install laravel` in core/scripts/plugins/laravel/functions/, where
 # bootstrap sources it after the core's own functions. Everything runs in the project's container
-# (DDEV by default: `ddev artisan …`, `ddev composer …`, `ddev npm …`), never on the host. The
-# container tool writes the database settings of the app into its .env, so nothing here writes any.
+# (DDEV by default: `ddev artisan …`, `ddev composer …`, `ddev npm …`), never on the host. On DDEV
+# the container tool writes the database settings of the app into its .env, so nothing here writes any.
+#
+# The runtimes: an app is built on DDEV, or with --runtime on Docker Compose, Podman, Kubernetes, Lando
+# or Docksal. The commands are the same on each: `ddev <verb>` is DDEV itself on a DDEV project, and on
+# another runtime the core's layer (fun-runtime.sh) gives the verb its meaning there. What differs is
+# behind laravel_runtime: the address (laravel_url), Artisan and `.env` (laravel_artisan and
+# laravel_dotenv_set: DDEV has verbs of its own for them, the layer has none), the official installer
+# (DDEV adds it to its web image), the front end (npm runs in the tests container there: the web
+# container of the php stack has no Node.js), and the .env DDEV writes on start (laravel_runtime_config:
+# the address, the database of the project's own stack, db/db/db on the host db, and its mail catcher).
 #
 # Four names are the ones the core's tools look for, under the DDEV project type `laravel`:
 #   set_laravel_users        the default accounts          (cmd-tools-add-users.sh <project> laravel)
@@ -35,9 +44,86 @@ function set_laravel_users() {
   user_unverified_role='unverified' ;
 }
 
-# Is this folder a Laravel project? Its DDEV project type says so.
+# The runtime of the project in this folder, or of a new build (--runtime, else the workspace's
+# setting, else DDEV). A core without the runtime layer has DDEV only.
+function laravel_runtime() {
+  if declare -f runtime_of > /dev/null ; then runtime_of ; else echo 'ddev' ; fi
+}
+
+# The address of the app in this folder: https://<name>.ddev.site on DDEV, http://127.0.0.1:<port> on
+# Docker Compose, Podman and Lando, the node's address and a port on Kubernetes, http://<name>.docksal.site
+# on Docksal. Asked after `ddev config`.
+function laravel_url() {
+  if declare -f rt_url > /dev/null ; then rt_url ; else echo "https://${PROJECT_NAME}.ddev.site" ; fi
+}
+
+# Artisan in the app of this folder: DDEV's own `ddev artisan`, and `php artisan` in the web container
+# on another runtime (the core's layer has no artisan verb).
+function laravel_artisan() {
+  if [ "$(laravel_runtime)" == 'ddev' ] ; then
+    ddev artisan "$@" ;
+  else
+    ddev exec php artisan "$@" ;
+  fi
+}
+
+# Set keys of a .env file: DDEV's own `ddev dotenv set <file> --a-key=value …`, and on another runtime
+# the same keys (A_KEY=value), each where the file has it (commented out or not), else at the end.
+function laravel_dotenv_set() {
+  if [ "$(laravel_runtime)" == 'ddev' ] ; then
+    ddev dotenv set "$@" ;
+    return $? ;
+  fi
+  python3 - "$@" <<'PYEOF'
+import re, sys
+path, pairs = sys.argv[1], []
+for arg in sys.argv[2:]:
+    m = re.match(r'^--([a-z0-9][a-z0-9-]*)=(.*)$', arg, re.S)
+    if not m:
+        sys.exit('laravel_dotenv_set: --a-key=value, not ' + arg)
+    value = m.group(2)
+    if re.search(r'[\s#"\'$\\]', value):
+        value = '"' + value.replace('\\', '\\\\').replace('"', '\\"') + '"'
+    pairs.append((m.group(1).upper().replace('-', '_'), value))
+try:
+    lines = open(path).read().split('\n')
+except FileNotFoundError:
+    lines = []
+if lines and lines[-1] == '':
+    lines.pop()
+for key, value in pairs:
+    found = [i for i, l in enumerate(lines) if re.match(r'^\s*' + re.escape(key) + r'\s*=', l)] \
+        or [i for i, l in enumerate(lines) if re.match(r'^\s*#\s*' + re.escape(key) + r'\s*=', l)]
+    if found:
+        lines[found[0]] = key + '=' + value
+    else:
+        lines.append(key + '=' + value)
+open(path, 'w').write('\n'.join(lines) + '\n')
+PYEOF
+}
+
+# What DDEV writes into the .env of a laravel project when it starts, and the other runtimes do not:
+# the address, the database of the project's own stack (db, db, db on the host db, as on every
+# runtime) and its mail catcher (Mailpit on the host mail, Lando's on mailpit, port 1025). Only on a
+# runtime that is not DDEV, in the project folder; a .env that is not there yet is made from the
+# app's .env.example first.
+function laravel_runtime_config() {
+  local base_url="$1" mail_host='mail' ;
+  [ "$(laravel_runtime)" == 'lando' ] && mail_host='mailpit' ;
+  [ -f .env ] || cp .env.example .env || return 1 ;
+  laravel_dotenv_set .env --app-url="${base_url}" \
+    --db-connection=mariadb --db-host=db --db-port=3306 --db-database=db --db-username=db --db-password=db \
+    --mail-mailer=smtp --mail-host="${mail_host}" --mail-port=1025 ;
+}
+
+# Is this folder a Laravel project? Its project type says so: on DDEV in .ddev/config.yaml, on another
+# runtime in the x-webship block, both read by the core's rt_is_platform.
 function laravel_is_project() {
   local project_path="$1";
+  if declare -f rt_is_platform > /dev/null ; then
+    rt_is_platform "${project_path}" laravel ;
+    return $? ;
+  fi
   grep -qE '^type:[[:space:]]*"?laravel"?[[:space:]]*$' "${project_path}/.ddev/config.yaml" 2>/dev/null ;
 }
 
@@ -49,7 +135,7 @@ function laravel_enter_project() {
     return 1 ;
   fi
   if ! laravel_is_project "${project_path}" ; then
-    echo "${doc_name}/${PROJECT_NAME} is not a Laravel project (its .ddev/config.yaml does not say type: laravel)." ;
+    echo "${doc_name}/${PROJECT_NAME} is not a Laravel project (its project type is not laravel)." ;
     return 1 ;
   fi
   cd "${project_path}" || return 1 ;
@@ -106,7 +192,12 @@ PHPEOF
 # official starter kit, and with --install its database and its first account.
 function laravel_build() {
   trim_project_name ;
-  local base_url="https://${PROJECT_NAME}.ddev.site" ;
+  local base_url runtime ;
+  runtime="$(laravel_runtime)" ;
+  if [ "${RUNTIME:-_none_}" != '_none_' ] && [ "${RUNTIME}" != "${runtime}" ] ; then
+    echo "--runtime ${RUNTIME} needs a Webship Workspace with the container runtimes (webship/workspace#694): update the workspace, or build on DDEV." ;
+    exit 1 ;
+  fi
   local kit="${STARTER_KIT:-${site_starter_kit:-livewire}}" ;
   local php_version="${PHP_VERSION:-${site_php_version:-}}" ;
 
@@ -124,23 +215,42 @@ function laravel_build() {
 
   ddev config --project-type=laravel --docroot="${distribution_webroot}" --project-name=${PROJECT_NAME} \
     --nodejs-version=$(ddev_nodejs_version) ${php_version:+--php-version=${php_version}} --auto || exit 1 ;
+  # The address is the runtime's to say, once the project is configured: never a written ddev.site.
+  base_url="$(laravel_url)" ;
 
-  # The official installer, in the web container for the time of the build only (the DDEV quickstart
-  # for Laravel does the same).
-  mkdir -p .ddev/web-build ;
-  cat > .ddev/web-build/Dockerfile.laravel-installer <<'DOCKERFILEEND'
+  if [ "${runtime}" == 'ddev' ] ; then
+    # The official installer, in the web container for the time of the build only (the DDEV quickstart
+    # for Laravel does the same).
+    mkdir -p .ddev/web-build ;
+    cat > .ddev/web-build/Dockerfile.laravel-installer <<'DOCKERFILEEND'
 ARG COMPOSER_HOME=/usr/local/composer
 RUN composer global require laravel/installer
 RUN ln -s $COMPOSER_HOME/vendor/bin/laravel /usr/local/bin/laravel
 DOCKERFILEEND
+  fi
   ddev_up start -y || exit 1 ;
 
-  ddev exec laravel new temp --${kit} --database=sqlite --pest --npm --no-boost --no-interaction \
-    || { echo "laravel new failed." ; exit 1 ; } ;
-  ddev exec 'rsync -rltgopD temp/ ./ && rm -rf temp' || exit 1 ;
-  rm -f .ddev/web-build/Dockerfile.laravel-installer .env ;
-  # The restart writes the database settings of the container into .env.
-  ddev_up restart || exit 1 ;
+  if [ "${runtime}" == 'ddev' ] ; then
+    ddev exec laravel new temp --${kit} --database=sqlite --pest --npm --no-boost --no-interaction \
+      || { echo "laravel new failed." ; exit 1 ; } ;
+    ddev exec 'rsync -rltgopD temp/ ./ && rm -rf temp' || exit 1 ;
+    rm -f .ddev/web-build/Dockerfile.laravel-installer .env ;
+    # The restart writes the database settings of the container into .env.
+    ddev_up restart || exit 1 ;
+  else
+    # The official installer, in Composer's own folder of the web container for the time of the
+    # build, without the front end: the web container of this runtime has no Node.js, and the starter
+    # kit's own feature installer is told so (LARAVEL_INSTALLER_NO_NODE).
+    ddev exec "composer global require laravel/installer --no-interaction --quiet && LARAVEL_INSTALLER_NO_NODE=1 \"\$(composer global config bin-dir --absolute --quiet)/laravel\" new temp --${kit} --database=sqlite --pest --no-boost --no-interaction" \
+      || { echo "laravel new failed." ; exit 1 ; } ;
+    ddev exec 'cp -a temp/. ./ && rm -rf temp' || exit 1 ;
+    rm -f .env ;
+    # What DDEV's restart writes into .env: the address, the database and the mail of the container.
+    laravel_runtime_config "${base_url}" || { echo "The .env of the app could not be written." ; exit 1 ; } ;
+    # The front end, in the tests container (Node.js), as `laravel new --npm` builds it on DDEV.
+    ddev npm install --no-audit --no-fund || { echo "npm install failed." ; exit 1 ; } ;
+    ddev npm run build || { echo "npm run build failed." ; exit 1 ; } ;
+  fi
   ddev composer run-script post-root-package-install || exit 1 ;
 
   if [ "${INSTALL}" == 'yes' ] ; then
@@ -156,13 +266,13 @@ DOCKERFILEEND
     fi
 
     if [ "${PRODUCTION}" == 'yes' ] ; then
-      ddev dotenv set .env --app-env=production --app-debug=false > /dev/null ;
+      laravel_dotenv_set .env --app-env=production --app-debug=false > /dev/null ;
     fi
 
-    echo "${doc_name} ${PROJECT_NAME} has been installed: $(ddev artisan --version 2>/dev/null) with the ${kit} starter kit.";
+    echo "${doc_name} ${PROJECT_NAME} has been installed: $(laravel_artisan --version 2>/dev/null) with the ${kit} starter kit.";
     echo "Go to ${base_url}/login and log in as ${account_mail}";
   else
-    ddev artisan key:generate --ansi > /dev/null ;
+    laravel_artisan key:generate --ansi > /dev/null ;
     [ "${ADD_USERS}" == 'yes' ] && echo "--add-users needs --install: there is no database to add accounts to yet." ;
     echo "${doc_name} ${PROJECT_NAME} is ready: migrate its database with bash cmd-tools-laravel-artisan.sh ${PROJECT_NAME} --run \"migrate\"";
     echo "Go to ${base_url}";
@@ -225,19 +335,19 @@ function laravel_artisan_tool() {
 
   if [ ! "${RUN}" == '_none_' ] ; then
     # Unquoted on purpose: --run "route:list --except-vendor" is a command and its arguments.
-    ddev artisan ${RUN} ;
+    laravel_artisan ${RUN} ;
     exit $? ;
   fi
 
   if [ "${UPDATE}" == 'yes' ] ; then
     ddev composer update --no-interaction ;
-    ddev artisan migrate --force ;
+    laravel_artisan migrate --force ;
     ddev npm install ;
     ddev npm run build ;
   elif [ "${DOWN}" == 'yes' ] ; then
-    ddev artisan down ${SECRET:+--secret="${SECRET}"} ;
+    laravel_artisan down ${SECRET:+--secret="${SECRET}"} ;
   elif [ "${UP}" == 'yes' ] ; then
-    ddev artisan up ;
+    laravel_artisan up ;
   elif [ "${ADD_USERS}" == 'yes' ] ; then
     set_laravel_users ;
     add_laravel_users ;
@@ -245,8 +355,8 @@ function laravel_artisan_tool() {
     set_laravel_users ;
     cancel_laravel_users ;
   else
-    echo "${doc_name}/${PROJECT_NAME}: $(ddev artisan --version 2>/dev/null) at https://${PROJECT_NAME}.ddev.site" ;
-    echo "" ; ddev artisan about --only=environment ;
+    echo "${doc_name}/${PROJECT_NAME}: $(laravel_artisan --version 2>/dev/null) at $(laravel_url)" ;
+    echo "" ; laravel_artisan about --only=environment ;
     echo "" ; echo "Accounts:" ;
     printf '' | laravel_write_accounts list ;
   fi
@@ -378,7 +488,7 @@ PYEOF
   fi
 
   # The scenarios log in as the default accounts: make sure a migrated app has them.
-  if ddev artisan migrate:status > /dev/null 2>&1 ; then
+  if laravel_artisan migrate:status > /dev/null 2>&1 ; then
     ( add_laravel_users > /dev/null ) && echo "  the default accounts are on the app (${users[*]})" ;
   fi
 }
